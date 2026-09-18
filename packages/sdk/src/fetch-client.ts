@@ -1746,7 +1746,7 @@ export type DuplicateResponseDto = {
     assets: AssetResponseDto[];
     /** Duplicate group ID */
     duplicateId: string;
-    /** Suggested asset IDs to keep based on file size and EXIF data */
+    /** Suggested asset IDs to keep based on EXIF data, original device file format, and file size */
     suggestedKeepAssetIds: string[];
 };
 export type DuplicateResolveGroupDto = {
