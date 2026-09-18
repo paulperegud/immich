@@ -1,50 +1,72 @@
 import { AssetResponseDto } from 'src/dtos/asset-response.dto.js';
+import { getFilenameExtension } from 'src/utils/file.js';
 
 /**
-Counts all truthy values in the exifInfo object.
-This matches the client implementation in web/src/lib/utils/exif-utils.ts
-
-@param asset Asset with optional exifInfo
-@returns Count of truthy EXIF values
-*/
+ * Counts all truthy values in the exifInfo object.
+ *
+ * @param asset Asset with optional exifInfo
+ * @returns Count of truthy EXIF values
+ */
 export const getExifCount = (asset: AssetResponseDto): number => {
   return Object.values(asset.exifInfo ?? {}).filter(Boolean).length;
 };
 
 /**
-Suggests the best duplicate asset to keep from a list of duplicates.
-This is a direct port of the client logic from web/src/lib/utils/duplicate-utils.ts
+ * File extensions that the capturing device stores on disk, as opposed to
+ * converted copies (e.g. JPEG) that are produced when sharing or exporting.
+ * HEIC/HEIF is what modern phones, the iPhone in particular, produce.
+ * Extend this list to treat additional formats (e.g. RAW) as device originals.
+ */
+const deviceOriginalExtensions = new Set(['.heic', '.heif', '.hif']);
 
-The best asset is determined by the following criteria:
- 1. Largest image file size in bytes
- 2. Largest count of EXIF data (as tie-breaker)
+/**
+ * Returns whether the asset is stored in its original device format (e.g. HEIC),
+ * rather than a converted copy (e.g. JPEG).
+ *
+ * @param asset Asset with an original file name
+ * @returns True if the file extension is a device-original format
+ */
+export const isDeviceOriginalFormat = (asset: AssetResponseDto): boolean => {
+  return deviceOriginalExtensions.has(getFilenameExtension(asset.originalFileName).toLowerCase());
+};
 
-@param assets List of duplicate assets
-@returns The best asset to keep, or undefined if empty list
-*/
+/**
+ * Suggests the best duplicate asset to keep from a list of duplicates.
+ * Fork note: upstream Immich prioritizes the largest file first, with EXIF data as tie-breaker.
+ *
+ * The best asset is determined by the following criteria:
+ *  1. Largest count of EXIF data
+ *  2. File stored in its original device format (e.g. HEIC over a converted JPEG)
+ *  3. Largest image file size in bytes (as tie-breaker)
+ *
+ * @param assets List of duplicate assets
+ * @returns The best asset to keep, or undefined if empty list
+ */
 export const suggestDuplicate = (assets: AssetResponseDto[]): AssetResponseDto | undefined => {
   if (assets.length === 0) {
     return undefined;
   }
 
-  // Sort by file size ascending (smallest first)
-  let duplicateAssets = [...assets].toSorted(
-    (a, b) => (a.exifInfo?.fileSizeInByte ?? 0) - (b.exifInfo?.fileSizeInByte ?? 0),
-  );
+  // Sort by preference ascending (least preferred first), then return the last element
+  return assets
+    .toSorted((a, b) => {
+      // 1. Prefer the asset with more EXIF metadata
+      const exifCountDiff = getExifCount(a) - getExifCount(b);
+      if (exifCountDiff !== 0) {
+        return exifCountDiff;
+      }
 
-  // Get the largest file size (last element after sorting)
-  const largestFileSize = duplicateAssets.at(-1)?.exifInfo?.fileSizeInByte ?? 0;
+      // 2. Prefer the file in its original device format (e.g. HEIC over a converted JPEG)
+      const aIsDeviceOriginal = isDeviceOriginalFormat(a);
+      const bIsDeviceOriginal = isDeviceOriginalFormat(b);
+      if (aIsDeviceOriginal !== bIsDeviceOriginal) {
+        return aIsDeviceOriginal ? 1 : -1;
+      }
 
-  // Filter to keep only assets with the largest file size
-  duplicateAssets = duplicateAssets.filter((asset) => (asset.exifInfo?.fileSizeInByte ?? 0) === largestFileSize);
-
-  // If there are multiple assets with the same file size, sort by EXIF count
-  if (duplicateAssets.length >= 2) {
-    duplicateAssets = duplicateAssets.toSorted((a, b) => getExifCount(a) - getExifCount(b));
-  }
-
-  // Return the last asset (highest EXIF count among highest file size)
-  return duplicateAssets.at(-1);
+      // 3. Prefer the larger file
+      return (a.exifInfo?.fileSizeInByte ?? 0) - (b.exifInfo?.fileSizeInByte ?? 0);
+    })
+    .at(-1);
 };
 
 /**

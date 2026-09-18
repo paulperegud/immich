@@ -22726,7 +22726,7 @@
             "type": "string"
           },
           "suggestedKeepAssetIds": {
-            "description": "Suggested asset IDs to keep based on file size and EXIF data",
+            "description": "Suggested asset IDs to keep based on EXIF data, original device file format, and file size",
             "items": {
               "format": "uuid",
               "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",

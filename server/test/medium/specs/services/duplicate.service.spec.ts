@@ -48,7 +48,13 @@ const newDuplicateAsset = async (
     ownerId,
     duplicateId,
     ...dto
-  }: { ownerId: string; duplicateId?: string; isFavorite?: boolean; visibility?: AssetVisibility },
+  }: {
+    ownerId: string;
+    duplicateId?: string;
+    isFavorite?: boolean;
+    visibility?: AssetVisibility;
+    originalFileName?: string;
+  },
   exif: { rating?: number; description?: string; latitude?: number; longitude?: number; fileSizeInByte?: number } = {},
 ) => {
   const { asset } = await ctx.newAsset({ ownerId, duplicateId, ...dto });
@@ -96,8 +102,33 @@ describe(DuplicateService.name, () => {
       expect(duplicates).toHaveLength(1);
       expect(duplicates[0].duplicateId).toBe(duplicateId);
       expect(duplicates[0].assets.map(({ id }) => id).sort()).toEqual([small.id, large.id].sort());
-      // largest file size wins
+      // equal metadata and format, so the largest file size wins
       expect(duplicates[0].suggestedKeepAssetIds).toEqual([large.id]);
+    });
+
+    it('should suggest the device original format over a larger converted copy', async () => {
+      const { sut, ctx } = setup();
+      const { user } = await ctx.newUser();
+      const duplicateId = factory.uuid();
+
+      const jpeg = await newDuplicateAsset(
+        ctx,
+        { ownerId: user.id, duplicateId, originalFileName: 'IMG_4032.jpg' },
+        { fileSizeInByte: 5000 },
+      );
+      const heic = await newDuplicateAsset(
+        ctx,
+        { ownerId: user.id, duplicateId, originalFileName: 'IMG_4032.HEIC' },
+        { fileSizeInByte: 1000 },
+      );
+
+      const auth = factory.auth({ user: { id: user.id } });
+      const duplicates = await sut.getDuplicates(auth);
+
+      expect(duplicates).toHaveLength(1);
+      expect(duplicates[0].assets.map(({ id }) => id).sort()).toEqual([jpeg.id, heic.id].sort());
+      // equal metadata, so the HEIC wins despite being the smaller file
+      expect(duplicates[0].suggestedKeepAssetIds).toEqual([heic.id]);
     });
 
     it('should not return duplicates owned by someone else', async () => {
